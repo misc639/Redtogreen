@@ -4,7 +4,6 @@ import pandas as pd
 import requests
 import plotly.graph_objects as go
 import feedparser
-from datetime import datetime
 
 # ----------------------------
 # Indicator Computation
@@ -82,7 +81,7 @@ def is_valid_ticker(ticker, interval, period):
         return False
 
 # ----------------------------
-# Screener Logic (placeholder logic)
+# Screener Logic
 # ----------------------------
 def run_screener(assets, indicators, method, interval, period, macd_buy_level, macd_sell_level, bot_token=None, chat_id=None):
     results = []
@@ -98,26 +97,21 @@ def run_screener(assets, indicators, method, interval, period, macd_buy_level, m
                 signal = "Buy Chance"
             elif df['MACD'].iloc[-1] < macd_sell_level:
                 signal = "Sell Chance"
-        results.append({"Asset": asset, "MACD Signal": signal})
+
+        # Latest indicator values
+        latest = df.iloc[-1]
+        results.append({
+            "Asset": asset,
+            "Signal": signal,
+            "EMA8": round(latest['EMA8'], 4) if 'EMA8' in df.columns else None,
+            "EMA21": round(latest['EMA21'], 4) if 'EMA21' in df.columns else None,
+            "RSI": round(latest['RSI'], 2) if 'RSI' in df.columns else None,
+            "ATR": round(latest['ATR'], 4) if 'ATR' in df.columns else None,
+            "MACD": round(latest['MACD'], 4) if 'MACD' in df.columns else None,
+            "Signal Line": round(latest['Signal'], 4) if 'Signal' in df.columns else None
+        })
         data_map[asset] = df
     return pd.DataFrame(results), data_map
-
-# ----------------------------
-# Multi-timeframe Screener
-# ----------------------------
-def run_screener_multi_tf(assets, indicators, method, timeframes, periods, macd_buy_level, macd_sell_level, bot_token=None, chat_id=None):
-    combined_results = []
-    for tf_idx, interval in enumerate(timeframes):
-        period = periods[tf_idx]
-        st.subheader(f"🕒 Results for {interval} timeframe")
-        df, data_map = run_screener(
-            assets, indicators, method, interval, period,
-            macd_buy_level, macd_sell_level,
-            bot_token, chat_id
-        )
-        st.dataframe(df, use_container_width=True)
-        combined_results.append((interval, df, data_map))
-    return combined_results
 
 # ----------------------------
 # Streamlit UI
@@ -133,13 +127,8 @@ selected_indicators = indicators
 
 method = st.selectbox("Strategy", ["Scalping", "Swing"])
 
-multi_tf = st.checkbox("Enable Multi-Timeframe Analysis", value=True)
-if multi_tf:
-    timeframes = st.multiselect("Select Timeframes", ["5m", "15m", "1h", "1d"], default=["15m", "1h"])
-    periods = ["5d" if tf in ["5m", "15m"] else "1mo" for tf in timeframes]
-else:
-    interval = st.selectbox("Interval", ["1m", "5m", "15m", "1h", "1d"], index=2)
-    period = st.selectbox("Period", ["1d", "5d", "1mo", "3mo", "6mo", "1y"], index=1)
+interval = st.selectbox("Interval", ["1m", "5m", "15m", "1h", "1d"], index=2)
+period = st.selectbox("Period", ["1d", "5d", "1mo", "3mo", "6mo", "1y"], index=1)
 
 macd_buy_level = st.number_input("MACD Buy Threshold", value=0.0, step=0.1)
 macd_sell_level = st.number_input("MACD Sell Threshold", value=0.0, step=0.1)
@@ -154,46 +143,38 @@ for item in get_high_impact_news():
 
 if st.button("Run Screener"):
     with st.spinner("Running strategy and scanning assets..."):
-        if multi_tf:
-            run_screener_multi_tf(
-                assets, selected_indicators, method, timeframes, periods,
-                macd_buy_level, macd_sell_level,
-                bot_token if bot_token else None,
-                chat_id if chat_id else None
-            )
-        else:
-            df, data_map = run_screener(
-                assets, selected_indicators, method, interval, period,
-                macd_buy_level, macd_sell_level,
-                bot_token=bot_token if bot_token else None,
-                chat_id=chat_id if chat_id else None
-            )
-            st.dataframe(df, use_container_width=True)
+        df, data_map = run_screener(
+            assets, selected_indicators, method, interval, period,
+            macd_buy_level, macd_sell_level,
+            bot_token=bot_token if bot_token else None,
+            chat_id=chat_id if chat_id else None
+        )
+        st.dataframe(df, use_container_width=True)
 
-            st.subheader("📈 Chart Previews")
-            for asset in df['Asset']:
-                if asset in data_map:
-                    st.markdown(f"### {asset} Chart")
-                    chart_data = data_map[asset]
+        st.subheader("📈 Chart Previews")
+        for asset in df['Asset']:
+            if asset in data_map:
+                st.markdown(f"### {asset} Chart")
+                chart_data = data_map[asset]
 
-                    fig = go.Figure()
-                    fig.add_trace(go.Candlestick(
-                        x=chart_data.index,
-                        open=chart_data['Open'],
-                        high=chart_data['High'],
-                        low=chart_data['Low'],
-                        close=chart_data['Close'],
-                        name='Price'))
+                fig = go.Figure()
+                fig.add_trace(go.Candlestick(
+                    x=chart_data.index,
+                    open=chart_data['Open'],
+                    high=chart_data['High'],
+                    low=chart_data['Low'],
+                    close=chart_data['Close'],
+                    name='Price'))
 
-                    for ema in ['EMA8', 'EMA21', 'EMA50', 'EMA200']:
-                        if ema in chart_data.columns:
-                            fig.add_trace(go.Scatter(x=chart_data.index, y=chart_data[ema], mode='lines', name=ema))
+                for ema in ['EMA8', 'EMA21', 'EMA50', 'EMA200']:
+                    if ema in chart_data.columns:
+                        fig.add_trace(go.Scatter(x=chart_data.index, y=chart_data[ema], mode='lines', name=ema))
 
-                    fig.update_layout(
-                        xaxis_title="Time",
-                        yaxis_title="Price",
-                        xaxis_rangeslider_visible=False,
-                        height=400
-                    )
-                    with st.expander(f"📈 Preview Chart: {asset}"):
-                        st.plotly_chart(fig, use_container_width=True)
+                fig.update_layout(
+                    xaxis_title="Time",
+                    yaxis_title="Price",
+                    xaxis_rangeslider_visible=False,
+                    height=400
+                )
+                with st.expander(f"📈 Preview Chart: {asset}"):
+                    st.plotly_chart(fig, use_container_width=True)
