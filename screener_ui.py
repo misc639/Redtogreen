@@ -56,22 +56,29 @@ def compute_indicators(df, indicators):
 # --- Strategy logic ---
 
 def scalping_signal(df):
-    last = df.iloc[-1]
-    conditions = [
-        last.get('EMA8', 0) > last.get('EMA21', 0),
-        last.get('MACD', 0) > last.get('Signal', 0),
-        40 < last.get('RSI', 50) < 60
-    ]
-    return all(conditions)
+    try:
+        last = df.iloc[-1]
+        ema8 = float(last.get('EMA8', 0))
+        ema21 = float(last.get('EMA21', 0))
+        macd = float(last.get('MACD', 0))
+        signal = float(last.get('Signal', 0))
+        rsi = float(last.get('RSI', 50))
+        return ema8 > ema21 and macd > signal and 40 < rsi < 60
+    except:
+        return False
 
 def swing_signal(df):
-    last = df.iloc[-1]
-    conditions = [
-        last.get('EMA50', 0) > last.get('EMA200', 0),
-        last.get('MACD', 0) > last.get('Signal', 0),
-        30 < last.get('RSI', 50) < 70
-    ]
-    return all(conditions)
+    try:
+        last = df.iloc[-1]
+        ema50 = float(last.get('EMA50', 0))
+        ema200 = float(last.get('EMA200', 0))
+        macd = float(last.get('MACD', 0))
+        signal = float(last.get('Signal', 0))
+        rsi = float(last.get('RSI', 50))
+        return ema50 > ema200 and macd > signal and 30 < rsi < 70
+    except:
+        return False
+
 
 # --- Run Screener ---
 
