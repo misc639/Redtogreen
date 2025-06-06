@@ -72,7 +72,38 @@ def get_high_impact_news():
     return news_items[:10]
 
 # ----------------------------
-# Screener Logic
+# Check valid tickers
+# ----------------------------
+def is_valid_ticker(ticker, interval, period):
+    try:
+        df = yf.download(ticker, interval=interval, period=period)
+        return not df.empty
+    except:
+        return False
+
+# ----------------------------
+# Screener Logic (placeholder logic)
+# ----------------------------
+def run_screener(assets, indicators, method, interval, period, macd_buy_level, macd_sell_level, bot_token=None, chat_id=None):
+    results = []
+    data_map = {}
+    for asset in assets:
+        if not is_valid_ticker(asset, interval, period):
+            continue
+        df = yf.download(asset, interval=interval, period=period)
+        df = compute_indicators(df, indicators)
+        signal = ""
+        if 'MACD' in df.columns:
+            if df['MACD'].iloc[-1] > macd_buy_level:
+                signal = "Buy Chance"
+            elif df['MACD'].iloc[-1] < macd_sell_level:
+                signal = "Sell Chance"
+        results.append({"Asset": asset, "MACD Signal": signal})
+        data_map[asset] = df
+    return pd.DataFrame(results), data_map
+
+# ----------------------------
+# Multi-timeframe Screener
 # ----------------------------
 def run_screener_multi_tf(assets, indicators, method, timeframes, periods, macd_buy_level, macd_sell_level, bot_token=None, chat_id=None):
     combined_results = []
@@ -89,18 +120,12 @@ def run_screener_multi_tf(assets, indicators, method, timeframes, periods, macd_
     return combined_results
 
 # ----------------------------
-# Existing run_screener (no change)
-# ----------------------------
-# ... (keep existing run_screener function code here) ...
-
-# ----------------------------
 # Streamlit UI
 # ----------------------------
 st.set_page_config(page_title="Trading Screener", layout="wide")
 st.title("📊 Multi-Market Trading Screener")
 
 assets = st.text_area("Enter asset symbols (comma-separated)", "AAPL,INFY.NS,BTC-USD,ETH-USD,EURUSD=X,USDJPY=X").split(',')
-
 assets = [x.strip() for x in assets if x.strip() != '']
 
 indicators = ['EMA8', 'EMA21', 'EMA50', 'EMA200', 'MACD', 'RSI', 'ATR']
