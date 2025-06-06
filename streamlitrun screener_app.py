@@ -99,7 +99,8 @@ def run_screener_multi_tf(assets, indicators, method, timeframes, periods, macd_
 st.set_page_config(page_title="Trading Screener", layout="wide")
 st.title("📊 Multi-Market Trading Screener")
 
-assets = st.text_area("Enter asset symbols (comma-separated)", "AAPL,INFY.NS,BTC-USD,ETH-USD").split(',')
+assets = st.text_area("Enter asset symbols (comma-separated)", "AAPL,INFY.NS,BTC-USD,ETH-USD,EURUSD=X,USDJPY=X").split(',')
+
 assets = [x.strip() for x in assets if x.strip() != '']
 
 indicators = ['EMA8', 'EMA21', 'EMA50', 'EMA200', 'MACD', 'RSI', 'ATR']
