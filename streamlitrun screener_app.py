@@ -3,6 +3,8 @@ import yfinance as yf
 import pandas as pd
 import requests
 import plotly.graph_objects as go
+import feedparser
+from datetime import datetime
 
 # ----------------------------
 # Indicator Computation
@@ -31,10 +33,10 @@ def compute_indicators(df, indicators):
         df['TR'] = df[['H-L', 'H-PC', 'L-PC']].max(axis=1)
         df['ATR'] = df['TR'].rolling(window=14).mean()
     if 'MACD' in indicators:
-        ema12 = df['Close'].ewm(span=12).mean()
-        ema26 = df['Close'].ewm(span=26).mean()
-        df['MACD'] = ema12 - ema26
-        df['Signal'] = df['MACD'].ewm(span=9).mean()
+        ema_fast = df['Close'].ewm(span=24).mean()
+        ema_slow = df['Close'].ewm(span=60).mean()
+        df['MACD'] = ema_fast - ema_slow
+        df['Signal'] = df['MACD'].ewm(span=18).mean()
     return df
 
 # ----------------------------
@@ -53,6 +55,17 @@ def send_telegram_message(bot_token, chat_id, message):
     except Exception as e:
         print("Telegram send error:", e)
         return False
+
+# ----------------------------
+# High Impact News (Mock)
+# ----------------------------
+def get_high_impact_news():
+    # Replace this with real parser for ForexFactory or similar source
+    # Here we simulate data for example purposes
+    return [
+        {"Time": "08:30 GMT", "Title": "US NFP Report", "Link": "https://www.forexfactory.com"},
+        {"Time": "10:00 GMT", "Title": "EUR CPI Flash Estimate", "Link": "https://www.forexfactory.com"},
+    ]
 
 # ----------------------------
 # Screener Logic
@@ -167,6 +180,10 @@ st.sidebar.header("🔔 Telegram Alerts (Optional)")
 bot_token = st.sidebar.text_input("Bot Token", type="password")
 chat_id = st.sidebar.text_input("Chat ID")
 
+st.sidebar.header("📰 High Impact News")
+for item in get_high_impact_news():
+    st.sidebar.markdown(f"**{item['Time']}** — [{item['Title']}]({item['Link']})")
+
 if st.button("Run Screener"):
     with st.spinner("Running strategy and scanning assets..."):
         df, data_map = run_screener(
@@ -202,4 +219,5 @@ if st.button("Run Screener"):
                     xaxis_rangeslider_visible=False,
                     height=400
                 )
-                st.plotly_chart(fig, use_container_width=True)
+                with st.expander(f"📈 Preview Chart: {asset}"):
+                    st.plotly_chart(fig, use_container_width=True)
