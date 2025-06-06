@@ -2,57 +2,135 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 
+# --- Indicator calculations ---
+
 def compute_rsi(series, period=14):
     delta = series.diff()
-    gain = delta.where(delta > 0, 0)
-    loss = -delta.where(delta < 0, 0)
-    avg_gain = gain.rolling(window=period).mean()
-    avg_loss = loss.rolling(window=period).mean()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.rolling(period).mean()
+    avg_loss = loss.rolling(period).mean()
     rs = avg_gain / avg_loss
-    return 100 - (100 / (1 + rs))
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
 
-def compute_indicators(df):
-    df['EMA8'] = df['Close'].ewm(span=8, adjust=False).mean()
-    df['EMA21'] = df['Close'].ewm(span=21, adjust=False).mean()
-    df['EMA50'] = df['Close'].ewm(span=50, adjust=False).mean()
-    df['EMA200'] = df['Close'].ewm(span=200, adjust=False).mean()
-    df['MACD'] = df['Close'].ewm(span=12).mean() - df['Close'].ewm(span=26).mean()
-    df['Signal'] = df['MACD'].ewm(span=9).mean()
-    df['RSI'] = compute_rsi(df['Close'], 14)
+def compute_atr(df, period=14):
+    high_low = df['High'] - df['Low']
+    high_close = (df['High'] - df['Close'].shift()).abs()
+    low_close = (df['Low'] - df['Close'].shift()).abs()
+    tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+    atr = tr.rolling(period).mean()
+    return atr
+
+def compute_macd(df):
+    exp12 = df['Close'].ewm(span=12, adjust=False).mean()
+    exp26 = df['Close'].ewm(span=26, adjust=False).mean()
+    macd = exp12 - exp26
+    signal = macd.ewm(span=9, adjust=False).mean()
+    return macd, signal
+
+def compute_ema(df, period):
+    return df['Close'].ewm(span=period, adjust=False).mean()
+
+def compute_indicators(df, indicators):
+    if 'EMA8' in indicators:
+        df['EMA8'] = compute_ema(df, 8)
+    if 'EMA21' in indicators:
+        df['EMA21'] = compute_ema(df, 21)
+    if 'EMA50' in indicators:
+        df['EMA50'] = compute_ema(df, 50)
+    if 'EMA200' in indicators:
+        df['EMA200'] = compute_ema(df, 200)
+    if 'MACD' in indicators or 'Signal' in indicators:
+        macd, signal = compute_macd(df)
+        if 'MACD' in indicators:
+            df['MACD'] = macd
+        if 'Signal' in indicators:
+            df['Signal'] = signal
+    if 'RSI' in indicators:
+        df['RSI'] = compute_rsi(df['Close'])
+    if 'ATR' in indicators:
+        df['ATR'] = compute_atr(df)
     return df
 
-def scalping_logic(df):
-    last = df.iloc[-1]
-    return last['EMA8'] > last['EMA21'] and last['MACD'] > last['Signal'] and 40 < last['RSI'] < 60
+# --- Strategy logic ---
 
-def swing_logic(df):
+def scalping_signal(df):
     last = df.iloc[-1]
-    return last['EMA50'] > last['EMA200'] and last['MACD'] > last['Signal'] and 30 < last['RSI'] < 70
+    conditions = [
+        last.get('EMA8', 0) > last.get('EMA21', 0),
+        last.get('MACD', 0) > last.get('Signal', 0),
+        40 < last.get('RSI', 50) < 60
+    ]
+    return all(conditions)
 
-def run_screener(assets, screener_type):
-    result = []
-    timeframe = '1m' if screener_type == 'Scalping' else '1h'
+def swing_signal(df):
+    last = df.iloc[-1]
+    conditions = [
+        last.get('EMA50', 0) > last.get('EMA200', 0),
+        last.get('MACD', 0) > last.get('Signal', 0),
+        30 < last.get('RSI', 50) < 70
+    ]
+    return all(conditions)
+
+# --- Run Screener ---
+
+def run_screener(assets, indicators, method, interval, period):
+    results = []
     for symbol in assets:
         try:
-            data = yf.download(symbol, interval=timeframe, period='5d', progress=False)
+            data = yf.download(symbol, interval=interval, period=period, progress=False)
             if data.empty:
-                result.append({'Asset': symbol, 'Signal': '❌ No Data'})
+                results.append({'Asset': symbol, 'Signal': 'No data'})
                 continue
-            df = compute_indicators(data)
-            is_opportunity = scalping_logic(df) if screener_type == 'Scalping' else swing_logic(df)
-            result.append({'Asset': symbol, 'Signal': '✅ Opportunity' if is_opportunity else '❌ No Setup'})
+            data = compute_indicators(data, indicators)
+            signal = False
+            if method == 'Scalping':
+                signal = scalping_signal(data)
+            elif method == 'Swing':
+                signal = swing_signal(data)
+            last = data.iloc[-1]
+            res = {
+                'Asset': symbol,
+                'Signal': '✅ Opportunity' if signal else '❌ No Setup'
+            }
+            # Add indicator values for display
+            for ind in indicators:
+                if ind in last:
+                    res[ind] = round(last[ind], 4)
+            results.append(res)
         except Exception as e:
-            result.append({'Asset': symbol, 'Signal': f"Error: {str(e)}"})
-    return pd.DataFrame(result)
+            results.append({'Asset': symbol, 'Signal': f"Error: {str(e)}"})
+    return pd.DataFrame(results)
 
 # --- Streamlit UI ---
-st.title("📈 Multi-Market Screener (Scalping & Swing)")
 
-asset_input = st.text_input("Enter Assets (comma separated)", "RELIANCE.NS,AAPL,BTC-USD,EURUSD=X")
-assets = [a.strip() for a in asset_input.split(',') if a.strip()]
+st.title("📊 Multi-Market Screener with Custom Indicators")
 
-screener_type = st.radio("Select Screener Type", ['Scalping', 'Swing'])
+# Input assets
+asset_text = st.text_area("Enter asset symbols (comma separated)", 
+                         value="RELIANCE.NS,AAPL,BTC-USD,EURUSD=X")
+assets = [a.strip().upper() for a in asset_text.split(',') if a.strip()]
+
+# Select indicators
+all_indicators = ['EMA8', 'EMA21', 'EMA50', 'EMA200', 'MACD', 'Signal', 'RSI', 'ATR']
+selected_indicators = st.multiselect("Select Indicators to include", all_indicators, 
+                                     default=['EMA8', 'EMA21', 'MACD', 'Signal', 'RSI', 'ATR'])
+
+# Choose strategy method
+method = st.selectbox("Select Strategy Method", ['Scalping', 'Swing'])
+
+# Interval and period
+interval_map = {
+    'Scalping': '5m',
+    'Swing': '1h'
+}
+interval = interval_map[method]
+period = '7d' if method == 'Scalping' else '30d'
+
+st.write(f"Using interval: **{interval}**, period: **{period}**")
 
 if st.button("Run Screener"):
-    output = run_screener(assets, screener_type)
-    st.write(output)
+    with st.spinner("Fetching data and computing signals..."):
+        df_result = run_screener(assets, selected_indicators, method, interval, period)
+    st.dataframe(df_result)
