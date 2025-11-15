@@ -15,11 +15,17 @@ ema_slow = 200
 # Functions
 # -----------------------------
 def get_data(pair, period="60d", interval="2h"):
-    df = yf.download(pair, period=period, interval=interval)
-    df.dropna(inplace=True)
-    return df
+    try:
+        df = yf.download(pair, period=period, interval=interval, progress=False)
+        df.dropna(inplace=True)
+        return df
+    except Exception as e:
+        st.warning(f"Error fetching data for {pair}: {e}")
+        return pd.DataFrame()
 
 def calculate_ema_trend(df, fast=50, slow=200):
+    if df.empty or 'Close' not in df.columns:
+        return df
     df['EMA50'] = ta.trend.ema_indicator(df['Close'], window=fast)
     df['EMA200'] = ta.trend.ema_indicator(df['Close'], window=slow)
     df['Trend'] = df['EMA50'] > df['EMA200']
@@ -28,28 +34,32 @@ def calculate_ema_trend(df, fast=50, slow=200):
     df['EMA_Cross'] = None
     for i in range(1, len(df)):
         if df['EMA50'][i-1] < df['EMA200'][i-1] and df['EMA50'][i] > df['EMA200'][i]:
-            df['EMA_Cross'][i] = 'Bullish Cross'
+            df.at[i, 'EMA_Cross'] = 'Bullish Cross'
         elif df['EMA50'][i-1] > df['EMA200'][i-1] and df['EMA50'][i] < df['EMA200'][i]:
-            df['EMA_Cross'][i] = 'Bearish Cross'
+            df.at[i, 'EMA_Cross'] = 'Bearish Cross'
     return df
 
 def find_pullback_signals(df):
+    if df.empty:
+        return df
     signals = []
-    for i in range(1, len(df)):
+    for i in range(len(df)):
+        if i == 0:
+            signals.append(None)
+            continue
         if df['Trend'][i] == 'Uptrend' and df['Low'][i] <= df['EMA50'][i]:
             signals.append("Buy Setup")
         elif df['Trend'][i] == 'Downtrend' and df['High'][i] >= df['EMA50'][i]:
             signals.append("Sell Setup")
         else:
             signals.append(None)
-    signals.insert(0, None)
     df['H2_Signal'] = signals
     return df
 
 # -----------------------------
 # Streamlit UI
 # -----------------------------
-st.title("📈 Forex Screener - H2 Pullback + Daily EMA Cross")
+st.title("📈 Robust Forex Screener - H2 Pullback + Daily EMA Cross")
 
 show_all_pairs = st.checkbox("Show all pairs summary", value=True)
 
@@ -67,11 +77,14 @@ for pair in pairs:
     # Daily Data
     df_daily = get_data(pair, period="180d", interval="1d")
     df_daily = calculate_ema_trend(df_daily, ema_fast, ema_slow)
-    last_daily_cross = df_daily['EMA_Cross'].dropna().iloc[-1] if not df_daily['EMA_Cross'].dropna().empty else "No Cross"
+    if df_daily.empty or df_daily['EMA_Cross'].dropna().empty:
+        last_daily_cross = "No Data"
+    else:
+        last_daily_cross = df_daily['EMA_Cross'].dropna().iloc[-1]
     
     # Latest H2 Setup
-    latest_setup = df_h2[df_h2['H2_Signal'].notnull()].tail(1)
-    if not latest_setup.empty:
+    if not df_h2.empty and not df_h2[df_h2['H2_Signal'].notnull()].empty:
+        latest_setup = df_h2[df_h2['H2_Signal'].notnull()].tail(1)
         summary_data.append({
             "Pair": pair,
             "Time": latest_setup.index[-1],
