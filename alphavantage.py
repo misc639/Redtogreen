@@ -86,4 +86,68 @@ def find_pullback_signals(df):
             continue
         if df['Trend'].iloc[i]=='Uptrend' and df['Low'].iloc[i]<=df['EMA50'].iloc[i]:
             signals.append("Buy Setup")
-        elif df['Trend'].ilo
+        elif df['Trend'].iloc[i]=='Downtrend' and df['High'].iloc[i]>=df['EMA50'].iloc[i]:
+            signals.append("Sell Setup")
+        else:
+            signals.append(None)
+    df['H2_Signal'] = signals
+    return df
+
+# -----------------------------
+# Build summary table
+# -----------------------------
+summary_data = []
+
+for pair in pairs:
+    df_h2 = get_alpha_vantage_data(pair)
+    # Rate limit: free Alpha Vantage allows 5 requests/min
+    time.sleep(12)  # avoid hitting rate limit
+    
+    if df_h2.empty:
+        summary_data.append({"Pair":pair,"Time":"-","Close":"-","H2 Trend":"-","H2 Signal":"-","Daily EMA Cross":"No Data"})
+        continue
+    df_h2 = calculate_ema_trend(df_h2, ema_fast, ema_slow)
+    df_h2 = find_pullback_signals(df_h2)
+    
+    df_daily = get_alpha_vantage_daily(pair)
+    time.sleep(12)  # avoid hitting rate limit
+    if df_daily.empty:
+        last_daily_cross = "No Data"
+    else:
+        df_daily = calculate_ema_trend(df_daily, ema_fast, ema_slow)
+        crosses = df_daily['EMA_Cross'].dropna()
+        last_daily_cross = crosses.iloc[-1] if not crosses.empty else "No Data"
+    
+    latest_setup = {"Pair": pair,"Time":"-","Close":"-","H2 Trend":"-","H2 Signal":"-","Daily EMA Cross":last_daily_cross}
+    setups = df_h2[df_h2['H2_Signal'].notnull()]
+    if not setups.empty:
+        last = setups.tail(1)
+        latest_setup.update({
+            "Time": last.index[-1],
+            "Close": round(last['Close'].values[0],5),
+            "H2 Trend": last['Trend'].values[0],
+            "H2 Signal": last['H2_Signal'].values[0],
+        })
+    summary_data.append(latest_setup)
+
+summary_df = pd.DataFrame(summary_data)
+
+# -----------------------------
+# Display with color highlights
+# -----------------------------
+def highlight_signal(row):
+    if row["H2 Signal"]=="Buy Setup":
+        return ['background-color:#b6fcb6']*len(row)
+    elif row["H2 Signal"]=="Sell Setup":
+        return ['background-color:#ffb6b6']*len(row)
+    else:
+        return ['']*len(row)
+
+st.subheader("All Pairs Summary")
+st.dataframe(summary_df.style.apply(highlight_signal,axis=1))
+
+# Detailed view
+selected_pair = st.selectbox("Select a Forex Pair for detailed view", pairs)
+detailed = summary_df[summary_df['Pair']==selected_pair]
+st.subheader(f"Detailed View - {selected_pair}")
+st.write(detailed.T)
